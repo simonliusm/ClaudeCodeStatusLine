@@ -144,6 +144,9 @@ esac
 # ===== Cross-platform OAuth token resolution (from statusline.sh) =====
 # Tries credential sources in order: env var → macOS Keychain → Linux creds file → GNOME Keyring
 get_oauth_token() {
+    # LOCAL PATCH (security): disabled — never read .credentials.json / keychain,
+    # never call api.anthropic.com. Max user only needs stdin rate_limits.
+    echo ""; return 0
     local token=""
 
     # 1. Explicit env var override
@@ -312,39 +315,26 @@ iso_to_epoch() {
     return 1
 }
 
-# Format ISO reset time to compact local time
-# Usage: format_reset_time <iso_string> <style: time|datetime|date>
+# LOCAL PATCH: reset shown as compact REMAINING countdown (no TZ, pure ASCII).
+# Sidesteps timezone ambiguity (pure Unix-epoch delta) and the locale month/AM-PM
+# mojibake. e.g. "2h13m" (resets in 2h13m), "4d5h", "47m", "now".
+format_remaining() {
+    local secs=$(( $1 - $(date +%s) ))
+    if [ "$secs" -le 0 ]; then echo "now"; return; fi
+    local d=$(( secs / 86400 )) h=$(( (secs % 86400) / 3600 )) m=$(( (secs % 3600) / 60 ))
+    if [ "$d" -gt 0 ]; then echo "${d}d${h}h"
+    elif [ "$h" -gt 0 ]; then echo "${h}h${m}m"
+    else echo "${m}m"; fi
+}
+
+# ISO reset string -> remaining countdown ($2 style kept for signature compat, unused)
 format_reset_time() {
     local iso_str="$1"
-    local style="$2"
     { [ -z "$iso_str" ] || [ "$iso_str" = "null" ]; } && return
-
-    # Parse ISO datetime and convert to local time (cross-platform)
     local epoch
     epoch=$(iso_to_epoch "$iso_str")
     [ -z "$epoch" ] && return
-
-    # Format based on style
-    # Try GNU date first (Linux), then BSD date (macOS)
-    # Previous implementation piped BSD date through sed/tr, which always returned
-    # exit code 0 from the last pipe stage, preventing the GNU date fallback from
-    # ever executing on Linux.
-    local formatted=""
-    case "$style" in
-        time)
-            formatted=$(date -d "@$epoch" +"%H:%M" 2>/dev/null) || \
-            formatted=$(date -j -r "$epoch" +"%H:%M" 2>/dev/null)
-            ;;
-        datetime)
-            formatted=$(date -d "@$epoch" +"%b %-d, %H:%M" 2>/dev/null) || \
-            formatted=$(date -j -r "$epoch" +"%b %-d, %H:%M" 2>/dev/null)
-            ;;
-        *)
-            formatted=$(date -d "@$epoch" +"%b %-d" 2>/dev/null) || \
-            formatted=$(date -j -r "$epoch" +"%b %-d" 2>/dev/null)
-            ;;
-    esac
-    [ -n "$formatted" ] && echo "$formatted"
+    format_remaining "$epoch"
 }
 
 sep=" ${dim}|${reset} "
@@ -380,7 +370,7 @@ if $effective_builtin; then
         five_hour_color=$(usage_color "$five_hour_pct")
         out+="${sep}${white}5h${reset} ${five_hour_color}${five_hour_pct}%${reset}"
         if [ -n "$builtin_five_hour_reset" ] && [ "$builtin_five_hour_reset" != "null" ]; then
-            five_hour_reset=$(date -j -r "$builtin_five_hour_reset" +"%H:%M" 2>/dev/null || date -d "@$builtin_five_hour_reset" +"%H:%M" 2>/dev/null)
+            five_hour_reset=$(format_remaining "$builtin_five_hour_reset")
             [ -n "$five_hour_reset" ] && out+=" ${dim}@${five_hour_reset}${reset}"
         fi
     fi
@@ -390,7 +380,7 @@ if $effective_builtin; then
         seven_day_color=$(usage_color "$seven_day_pct")
         out+="${sep}${white}7d${reset} ${seven_day_color}${seven_day_pct}%${reset}"
         if [ -n "$builtin_seven_day_reset" ] && [ "$builtin_seven_day_reset" != "null" ]; then
-            seven_day_reset=$(date -j -r "$builtin_seven_day_reset" +"%b %-d, %H:%M" 2>/dev/null || date -d "@$builtin_seven_day_reset" +"%b %-d, %H:%M" 2>/dev/null)
+            seven_day_reset=$(format_remaining "$builtin_seven_day_reset")
             [ -n "$seven_day_reset" ] && out+=" ${dim}@${seven_day_reset}${reset}"
         fi
     fi
@@ -450,7 +440,7 @@ fi
 version_cache_file="/tmp/claude/statusline-version-cache.json"
 version_cache_max_age=86400  # 24 hours
 
-version_needs_refresh=true
+version_needs_refresh=false  # LOCAL PATCH (security): disabled github.com 24h update-check
 version_data=""
 
 if [ -f "$version_cache_file" ]; then
