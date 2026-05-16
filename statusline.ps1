@@ -162,6 +162,10 @@ switch ($effortLevel) {
 
 # ===== OAuth token resolution =====
 function Get-OAuthToken {
+    # === LOCAL PATCH (security): disabled. Never read local Claude credentials
+    # nor call api.anthropic.com. Max user only needs stdin rate_limits (5h/7d).
+    # Lose only the extra_usage segment (irrelevant without purchased extra credits).
+    return $null
     # 1. Explicit env var override
     if ($env:CLAUDE_CODE_OAUTH_TOKEN) {
         return $env:CLAUDE_CODE_OAUTH_TOKEN
@@ -280,29 +284,35 @@ if ($needsRefresh) {
     }
 }
 
-# Format ISO reset time to compact local time
+# LOCAL PATCH: render reset as compact REMAINING time (countdown), not local clock time.
+# Sidesteps timezone ambiguity entirely (pure Unix-epoch delta) and is pure ASCII
+# (no month names / AM-PM, so the zh-CN locale mojibake issue is moot too).
+# e.g. "2h13m" (resets in 2h13m), "4d5h", "47m", "now".
+function Format-Remaining([long]$secs) {
+    if ($secs -le 0) { return "now" }
+    $d = [math]::Floor($secs / 86400)
+    $h = [math]::Floor(($secs % 86400) / 3600)
+    $m = [math]::Floor(($secs % 3600) / 60)
+    if ($d -gt 0) { return "${d}d${h}h" }
+    if ($h -gt 0) { return "${h}h${m}m" }
+    return "${m}m"
+}
+
+# ISO reset string -> remaining time ($style kept for signature compat, unused)
 function Format-ResetTime([string]$isoStr, [string]$style) {
     if (-not $isoStr -or $isoStr -eq "null") { return $null }
     try {
-        $dt = [DateTimeOffset]::Parse($isoStr).LocalDateTime
-        switch ($style) {
-            "time"     { return $dt.ToString("h:mmtt").ToLower() }
-            "datetime" { return $dt.ToString("MMM d, h:mmtt").ToLower() }
-            default    { return $dt.ToString("MMM d").ToLower() }
-        }
+        $secs = [long]([DateTimeOffset]::Parse($isoStr).ToUnixTimeSeconds() - [DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
+        return (Format-Remaining $secs)
     } catch { return $null }
 }
 
-# Format Unix epoch reset time to compact local time
+# Unix epoch reset -> remaining time ($style kept for signature compat, unused)
 function Format-EpochResetTime([object]$epoch, [string]$style) {
     if ($null -eq $epoch -or "$epoch" -eq "null" -or "$epoch" -eq "") { return $null }
     try {
-        $dt = [DateTimeOffset]::FromUnixTimeSeconds([long]$epoch).LocalDateTime
-        switch ($style) {
-            "time"     { return $dt.ToString("h:mmtt").ToLower() }
-            "datetime" { return $dt.ToString("MMM d, h:mmtt").ToLower() }
-            default    { return $dt.ToString("MMM d").ToLower() }
-        }
+        $secs = [long]([long]$epoch - [DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
+        return (Format-Remaining $secs)
     } catch { return $null }
 }
 
@@ -419,7 +429,7 @@ if ($effectiveBuiltin) {
 $versionCacheFile = Join-Path $cacheDir "statusline-version-cache.json"
 $versionCacheMaxAge = 86400  # 24 hours
 
-$versionNeedsRefresh = $true
+$versionNeedsRefresh = $false  # LOCAL PATCH (security): disabled github.com 24h update-check phone-home
 $versionData = $null
 
 if (Test-Path $versionCacheFile) {
