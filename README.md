@@ -2,6 +2,36 @@
 
 A custom status line for [Claude Code](https://claude.com/claude-code) that displays model info, token usage, rate limits, and reset times in a single compact line. It runs as an external shell command, so it does not slow down Claude Code or consume any extra tokens.
 
+> **This is a patched fork** for Claude Max users: zero outbound calls, zero credential reads, reset shown as a remaining-time countdown. What changed vs. upstream `daniel3303/ClaudeCodeStatusLine` (and the one-time supply-chain audit) is documented in **[LOCAL-PATCH.md](LOCAL-PATCH.md)**.
+
+## 🚀 Quickstart
+
+One command. It clones/updates into `~/.claude/statusline`, installs deps, self-tests, and merges **only** the `statusLine` key into your `settings.json` (other keys untouched). It aborts without touching `settings.json` if the self-test fails. Then **restart Claude Code**.
+
+**Linux / macOS**
+```bash
+curl -fsSL https://raw.githubusercontent.com/simonliusm/ClaudeCodeStatusLine/main/install.sh | bash
+```
+
+**Windows (PowerShell)**
+```powershell
+irm https://raw.githubusercontent.com/simonliusm/ClaudeCodeStatusLine/main/install.ps1 | iex
+```
+
+Prefer not to pipe to a shell? Clone first, then run the installer:
+```bash
+# Linux / macOS
+git clone https://github.com/simonliusm/ClaudeCodeStatusLine ~/.claude/statusline 2>/dev/null || git -C ~/.claude/statusline pull --ff-only
+bash ~/.claude/statusline/install.sh
+```
+```powershell
+# Windows
+$d="$env:USERPROFILE\.claude\statusline"; if (Test-Path "$d\.git") { git -C $d pull --ff-only } else { git clone https://github.com/simonliusm/ClaudeCodeStatusLine $d }
+powershell -NoProfile -ExecutionPolicy Bypass -File "$d\install.ps1"
+```
+
+The installer prints a final `RESULT: os=… sha=… cmd=…` line; paste that back if a CC ran it for you.
+
 ## Screenshot
 
 ![Status Line Screenshot](screenshot.png)
