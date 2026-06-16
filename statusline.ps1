@@ -3,10 +3,23 @@
 $VERSION = "1.4.3"
 # Single line: Model | tokens | %used | %remain | think | 5h bar @reset | 7d bar @reset | extra
 
-# Read input from stdin
-$input = @($Input) -join "`n"
+# Read input from stdin as raw UTF-8 bytes.
+# Claude Code pipes UTF-8 to this script. On a zh-CN Windows the default console codepage is
+# GBK/936, and PowerShell's -File mode decodes stdin with it the instant the automatic $Input
+# variable is touched — corrupting non-ASCII fields (e.g. session_name), breaking the JSON
+# structure, so ConvertFrom-Json threw and the status line fell back to "Claude"/no-dir.
+# Fix: never reference $Input anywhere (that makes PowerShell eagerly drain stdin as GBK before
+# this runs); instead read the raw stdin handle and decode UTF-8 ourselves. This is codepage-
+# independent, so it works the same on UTF-8, GBK, or any other system locale.
+$stdinJson = ""
+try {
+    $stdinStream = [Console]::OpenStandardInput()
+    $stdinReader = New-Object System.IO.StreamReader($stdinStream, (New-Object System.Text.UTF8Encoding $false))
+    $stdinJson = $stdinReader.ReadToEnd()
+    $stdinReader.Dispose()
+} catch { }
 
-if (-not $input) {
+if (-not $stdinJson) {
     Write-Host -NoNewline "Claude"
     exit 0
 }
@@ -67,7 +80,7 @@ function Test-VersionGreaterThan([string]$a, [string]$b) {
 }
 
 # ===== Extract data from JSON =====
-$data = $input | ConvertFrom-Json
+$data = $stdinJson | ConvertFrom-Json
 
 $modelName = if ($data.model.display_name) { $data.model.display_name } else { "Claude" }
 $modelName = ($modelName -replace '\s*\((\d+\.?\d*[kKmM])\s+context\)', ' $1').Trim()  # "(1M context)" → "1M"
@@ -107,7 +120,7 @@ if ($data.effort.level) {
     $settingsPath = Join-Path $claudeConfigDir "settings.json"
     if (Test-Path $settingsPath) {
         try {
-            $settings = Get-Content $settingsPath -Raw | ConvertFrom-Json
+            $settings = [System.IO.File]::ReadAllText($settingsPath) | ConvertFrom-Json
             if ($settings.effortLevel) { $effortLevel = $settings.effortLevel }
         } catch {}
     }

@@ -35,7 +35,8 @@ $CmdPath = $ScriptPs -replace '\\','/'
 $Command = "powershell -NoProfile -ExecutionPolicy Bypass -File $CmdPath"
 
 if ((Test-Path $Settings) -and ((Get-Item $Settings).Length -gt 0)) {
-  try { $cfg = Get-Content -Raw $Settings | ConvertFrom-Json }
+  # 按 UTF-8 读取，避免 zh-CN Windows 默认 GBK 把中文设置值读成乱码导致 JSON 解析失败
+  try { $cfg = [System.IO.File]::ReadAllText($Settings) | ConvertFrom-Json }
   catch { Write-Error "$Settings is not valid JSON - back it up and fix, then re-run. Aborting (untouched)."; exit 1 }
 } else {
   New-Item -ItemType Directory -Force -Path (Split-Path $Settings) | Out-Null
